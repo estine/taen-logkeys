@@ -1,0 +1,8 @@
+
+-> Add support for sending logs via mail
+
+-> Also log title of the focused window
+
+-> Extract clipboard contents
+
+-> Add support for mouse events (i.e. on mouse click the focus may have changed)
