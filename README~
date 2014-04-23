@@ -8,8 +8,5 @@ POLYMORPHISM:
 
 KEYLOGGER:
 	1) Hide process name?
-	   exec -a "<name>" your_cmd -arg
 	2) Encrypt keystroke file? AES or DES?
-	   bcrypt installed!
 	3) E-mail keystroke? After certain amount of time? Hardcoded into source?
-	   Have mail (command line) program installed!
