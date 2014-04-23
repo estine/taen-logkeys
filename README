@@ -3,5 +3,9 @@
 POLYMORPHISM:
 	1) Add in functionality that mixes up lines of code in source (changing MD5 checksum while retaining all functionality)
 	2) Add in functionality that makes random system calls ((possibly) changing perceived structure of program while retaining all functionality)
-	3) Add in functionality that utilizes an ecnrypted payload, decryption alg., and random key to alter the signature of the program.
+	3) Add in functionality that utilizes an ecnrypted payload, decryption alg., and random key to alter the signature of the program
 
+KEYLOGGER:
+	1) Hide process name?
+	2) Encrypt keystroke file? AES or DES?
+	3) E-mail keystroke?
