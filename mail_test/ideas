@@ -1,0 +1,2 @@
+# Have check in main loop for time = send time, then run mail command at that point (always acting, and failing, silently)
+# Just run an at command when it starts up with mail of our payload command

