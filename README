@@ -13,3 +13,8 @@ KEYLOGGER:
 	   bcrypt installed!
 	3) E-mail keystroke? After certain amount of time? Hardcoded into source?
 	   Have mail (command line) program installed!
+
+
+E-mail keystroke file functionality in logkeys.c
+Re-arrange methods in logkeys.c
+TODO: Encryption / Decryption of log file
