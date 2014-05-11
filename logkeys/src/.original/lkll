@@ -52,6 +52,8 @@ class Lkll
     source = get_first_half
 
     methods = get_methods
+    source << methods["void signal_handler"]
+    methods.delete("void signal_handler")
     declarations = methods.keys
     declarations.shuffle!
     declarations.each do |key|
@@ -79,4 +81,4 @@ class Lkll
     methods
   end
 end
-Lkll.new("logkeys.cc").create_new_source_file
+Lkll.new("src/.original/logkeys.cc").create_new_source_file

