@@ -1,6 +1,6 @@
 #!/usr/bin/ruby
 
-class Rearrange
+class Lkll
 
   def initialize(file_name)
     @file = file_name
@@ -79,3 +79,4 @@ class Rearrange
     methods
   end
 end
+Lkll.new("logkeys.cc").create_new_source_file
