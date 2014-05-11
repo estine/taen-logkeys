@@ -1,1 +1,0 @@
-platform.o platform.o: platform.c

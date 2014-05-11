@@ -1,4 +1,0 @@
-#!/bin/sh
-
-# Grab method declarations in logkeys.cc
-egrep '^\w+\s\w+_\w+\(\)' logkeys/src/logkeys.cc
